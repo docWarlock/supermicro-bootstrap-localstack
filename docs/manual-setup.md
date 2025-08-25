@@ -1,7 +1,3 @@
-Absolutely — I’ve updated your full guide to include the clarification that you’re **simulating AWS deployments** locally, and added a LocalStack section reflecting that no EKS mapping is needed. Everything is in **strict order of operation**.
-
----
-
 # 🚀 Supermicro E300 → RKE2 + LocalStack Lab Setup (AWS Deployment Simulation)
 
 ## 0. Hardware & Firmware Prep
