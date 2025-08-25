@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # === CONFIG ===
-USER_NAME="doc"               # change to your user
+USER_NAME="user"               # change to your user
 NODE_IP="$(hostname -I | awk '{print $1}')"  # auto-detect first IP
 NODE_DNS="e300.lan"           # optional DNS name
 RKE2_TOKEN="$(openssl rand -hex 16)"         # random cluster token
