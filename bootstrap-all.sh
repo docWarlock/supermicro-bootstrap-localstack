@@ -10,6 +10,7 @@ NODE_DNS="e300.lan"                         # optional DNS
 RKE2_TOKEN="$(openssl rand -hex 16)"        # random cluster token
 METALLB_IP_RANGE="192.168.1.240-192.168.1.250"
 LOCALSTACK_NAMESPACE="localstack"
+KUBECONFIG_PATH="/home/${USER_NAME}/rke2.yaml"
 
 # ===========================
 # MAKE RKE2 BINARIES AVAILABLE
@@ -63,21 +64,31 @@ echo "[*] Starting RKE2..."
 systemctl start rke2-server
 
 # ===========================
+# COPY KUBECONFIG TO USER
+# ===========================
+echo "[*] Copying kubeconfig to user home..."
+cp /etc/rancher/rke2/rke2.yaml "${KUBECONFIG_PATH}"
+chown ${USER_NAME}:${USER_NAME} "${KUBECONFIG_PATH}"
+chmod 600 "${KUBECONFIG_PATH}"
+
+# ===========================
+# EXPORT KUBECONFIG
+# ===========================
+export KUBECONFIG="${KUBECONFIG_PATH}"
+
+# ===========================
 # WAIT FOR API SERVER
 # ===========================
 echo "[*] Waiting for RKE2 Kubernetes API..."
-until kubectl get nodes >/dev/null 2>&1; do
+until kubectl --kubeconfig "$KUBECONFIG" get nodes >/dev/null 2>&1; do
     echo "Waiting for API server..."
     sleep 5
 done
 echo "[*] API server is ready."
 
-# ===========================
-# COPY KUBECONFIG TO USER
-# ===========================
-echo "[*] Copying kubeconfig to user home..."
-cp /etc/rancher/rke2/rke2.yaml /home/${USER_NAME}/rke2.yaml
-chown ${USER_NAME}:${USER_NAME} /home/${USER_NAME}/rke2.yaml
+# Verify connectivity
+echo "[*] Verifying API server connectivity..."
+kubectl get nodes
 
 # ===========================
 # INSTALL HELM
@@ -91,7 +102,7 @@ fi
 # INSTALL METALLB
 # ===========================
 echo "[*] Installing MetalLB..."
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.8/config/manifests/metallb-native.yaml
+kubectl --kubeconfig "$KUBECONFIG" apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.8/config/manifests/metallb-native.yaml
 
 cat >/tmp/metallb-pool.yaml <<EOF
 apiVersion: metallb.io/v1beta1
@@ -113,7 +124,7 @@ spec:
     - lan-pool
 EOF
 
-kubectl apply -f /tmp/metallb-pool.yaml
+kubectl --kubeconfig "$KUBECONFIG" apply -f /tmp/metallb-pool.yaml
 
 # ===========================
 # DEPLOY LOCALSTACK
@@ -149,7 +160,7 @@ helm upgrade --install localstack localstack/localstack \
   --namespace ${LOCALSTACK_NAMESPACE} --create-namespace \
   -f values-localstack.yaml
 
-kubectl -n ${LOCALSTACK_NAMESPACE} rollout status deploy/localstack --timeout=180s
+kubectl --kubeconfig "$KUBECONFIG" -n ${LOCALSTACK_NAMESPACE} rollout status deploy/localstack --timeout=180s
 
 # ===========================
 # COMPLETION MESSAGE
@@ -157,12 +168,12 @@ kubectl -n ${LOCALSTACK_NAMESPACE} rollout status deploy/localstack --timeout=18
 echo "---------------------------------------------------"
 echo "✅ Bootstrap complete!"
 echo "RKE2 cluster token: ${RKE2_TOKEN}"
-echo "Kubeconfig path: /home/${USER_NAME}/rke2.yaml"
+echo "Kubeconfig path: ${KUBECONFIG_PATH}"
 echo "LocalStack namespace: ${LOCALSTACK_NAMESPACE}"
 echo
 echo "Next steps from your laptop:"
 echo "  mkdir -p ~/.kube"
-echo "  scp ${USER_NAME}@${NODE_IP}:/home/${USER_NAME}/rke2.yaml ~/.kube/config-e300"
+echo "  scp ${USER_NAME}@${NODE_IP}:${KUBECONFIG_PATH} ~/.kube/config-e300"
 echo "  set KUBECONFIG=~/.kube/config-e300"
 echo "  kubectl get nodes"
 echo "  kubectl -n ${LOCALSTACK_NAMESPACE} port-forward svc/localstack 4566:4566"
