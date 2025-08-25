@@ -71,6 +71,9 @@ cp /etc/rancher/rke2/rke2.yaml "${KUBECONFIG_PATH}"
 chown ${USER_NAME}:${USER_NAME} "${KUBECONFIG_PATH}"
 chmod 600 "${KUBECONFIG_PATH}"
 
+# Replace localhost/127.0.0.1 with node LAN IP so it is portable
+sed -i "s/127.0.0.1/${NODE_IP}/g" "${KUBECONFIG_PATH}"
+
 # ===========================
 # EXPORT KUBECONFIG
 # ===========================
@@ -89,6 +92,14 @@ echo "[*] API server is ready."
 # Verify connectivity
 echo "[*] Verifying API server connectivity..."
 kubectl get nodes
+
+# ===========================
+# INSTALL LOCAL-PATH STORAGE
+# ===========================
+echo "[*] Installing local-path storage provisioner..."
+kubectl --kubeconfig "$KUBECONFIG" apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml
+kubectl --kubeconfig "$KUBECONFIG" patch storageclass local-path \
+  -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 
 # ===========================
 # INSTALL HELM
@@ -153,6 +164,14 @@ extraEnvVars:
 persistence:
   enabled: true
   size: 20Gi
+
+resources:
+  limits:
+    cpu: "1"
+    memory: "2Gi"
+  requests:
+    cpu: "0.5"
+    memory: "1Gi"
 EOF
 
 echo "[*] Installing LocalStack..."
@@ -160,7 +179,9 @@ helm upgrade --install localstack localstack/localstack \
   --namespace ${LOCALSTACK_NAMESPACE} --create-namespace \
   -f values-localstack.yaml
 
-kubectl --kubeconfig "$KUBECONFIG" -n ${LOCALSTACK_NAMESPACE} rollout status deploy/localstack --timeout=180s
+# Wait for pod to be ready
+echo "[*] Waiting for LocalStack pod to be ready..."
+kubectl --kubeconfig "$KUBECONFIG" -n ${LOCALSTACK_NAMESPACE} wait --for=condition=Ready pod -l "app.kubernetes.io/name=localstack,app.kubernetes.io/instance=localstack" --timeout=300s
 
 # ===========================
 # COMPLETION MESSAGE
@@ -168,13 +189,33 @@ kubectl --kubeconfig "$KUBECONFIG" -n ${LOCALSTACK_NAMESPACE} rollout status dep
 echo "---------------------------------------------------"
 echo "✅ Bootstrap complete!"
 echo "RKE2 cluster token: ${RKE2_TOKEN}"
-echo "Kubeconfig path: ${KUBECONFIG_PATH}"
+echo "Kubeconfig path on server: ${KUBECONFIG_PATH}"
 echo "LocalStack namespace: ${LOCALSTACK_NAMESPACE}"
 echo
-echo "Next steps from your laptop:"
+echo "Next steps from your laptop or workstation:"
+
+echo
+echo "🖥  Linux or macOS users:"
 echo "  mkdir -p ~/.kube"
 echo "  scp ${USER_NAME}@${NODE_IP}:${KUBECONFIG_PATH} ~/.kube/config-e300"
-echo "  set KUBECONFIG=~/.kube/config-e300"
+echo "  export KUBECONFIG=~/.kube/config-e300"
 echo "  kubectl get nodes"
 echo "  kubectl -n ${LOCALSTACK_NAMESPACE} port-forward svc/localstack 4566:4566"
+echo
+
+echo "💻 Windows users (WSL2 recommended):"
+echo "  1. Install WSL2 Ubuntu-24.04: wsl --install -d Ubuntu-24.04"
+echo "  2. Open Ubuntu shell: wsl"
+echo "  3. Install kubectl inside WSL2:"
+echo "       sudo snap install kubectl --classic"
+echo "  4. Copy kubeconfig into WSL home:"
+echo "       mkdir -p ~/.kube"
+echo "       scp ${USER_NAME}@${NODE_IP}:${KUBECONFIG_PATH} ~/.kube/config-e300"
+echo "  5. Set KUBECONFIG:"
+echo "       export KUBECONFIG=~/.kube/config-e300"
+echo "  6. Test cluster connection: kubectl get nodes"
+echo "  7. Port-forward LocalStack:"
+echo "       kubectl -n ${LOCALSTACK_NAMESPACE} port-forward svc/localstack 4566:4566"
+echo
+echo "🔹 Note: If you are not using WSL2, make sure to update the 'server:' field in kubeconfig to the node's LAN IP."
 echo "---------------------------------------------------"
